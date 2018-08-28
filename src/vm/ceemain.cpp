@@ -1676,7 +1676,7 @@ void STDMETHODCALLTYPE EEShutDownHelper(BOOL fIsDllUnloading)
                     {
                         IBCLoggingDisabler disableLogging( pInfo );  // runs IBCLoggingDisabler::DisableLogging
                         
-                        CONTRACT_VIOLATION(GCViolation);
+                        //CONTRACT_VIOLATION(GCViolation);
                         Module::WriteAllModuleProfileData(true);
                     }
                 }
