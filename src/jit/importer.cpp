@@ -236,8 +236,7 @@ bool Compiler::impILConsumesAddr(const BYTE* codeAddr, CORINFO_METHOD_HANDLE fnc
             CORINFO_RESOLVED_TOKEN resolvedToken;
             impResolveToken(codeAddr + sizeof(__int8), &resolvedToken, CORINFO_TOKENKIND_Field);
 
-            CORINFO_CLASS_HANDLE clsHnd;
-            var_types lclTyp = JITtype2varType(info.compCompHnd->getFieldType(resolvedToken.hField, &clsHnd));
+            var_types lclTyp = JITtype2varType(info.compCompHnd->getFieldType(resolvedToken.hField));
 
             // Preserve 'small' int types
             if (!varTypeIsSmall(lclTyp))
@@ -17743,9 +17742,8 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // Note if the callee's class is a promotable struct
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
-        lvaStructPromotionInfo structPromotionInfo;
-        lvaCanPromoteStructType(info.compClassHnd, &structPromotionInfo, false);
-        if (structPromotionInfo.canPromote)
+        assert(structPromotionHelper != nullptr);
+        if (structPromotionHelper->CanPromoteStructType(info.compClassHnd))
         {
             inlineResult->Note(InlineObservation::CALLEE_CLASS_PROMOTABLE);
         }
@@ -19633,6 +19631,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     call->gtFlags &= ~GTF_CALL_VIRT_STUB;
     call->gtCallMethHnd = derivedMethod;
     call->gtCallType    = CT_USER_FUNC;
+    call->gtCallMoreFlags |= GTF_CALL_M_DEVIRTUALIZED;
 
     // Virtual calls include an implicit null check, which we may
     // now need to make explicit.
@@ -19697,6 +19696,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         // Pass the local var as this and the type handle as a new arg
                         JITDUMP("Success! invoking unboxed entry point on local copy, and passing method table arg\n");
                         call->gtCallObjp = localCopyThis;
+                        call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
 
                         // Prepend for R2L arg passing or empty L2R passing
                         if ((Target::g_tgtArgOrder == Target::ARG_ORDER_R2L) || (call->gtCallArgs == nullptr))
@@ -19744,7 +19744,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                     JITDUMP("Success! invoking unboxed entry point on local copy\n");
                     call->gtCallObjp    = localCopyThis;
                     call->gtCallMethHnd = unboxedEntryMethod;
-                    derivedMethod       = unboxedEntryMethod;
+                    call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+                    derivedMethod = unboxedEntryMethod;
                 }
                 else
                 {

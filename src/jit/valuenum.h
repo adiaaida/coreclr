@@ -190,6 +190,9 @@ private:
     // Returns "true" iff "vnf" can be evaluated for constant arguments.
     static bool CanEvalForConstantArgs(VNFunc vnf);
 
+    // Returns "true" iff "vnf" should be folded by evaluating the func with constant arguments.
+    bool VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN);
+
     // return vnf(v0)
     template <typename T>
     static T EvalOp(VNFunc vnf, T v0);
@@ -197,13 +200,12 @@ private:
     // returns vnf(v0)  for int/INT32
     int EvalOpInt(VNFunc vnf, int v0);
 
-    // If vnf(v0, v1) would raise an exception, sets *pExcSet to the singleton set containing the exception, and
-    // returns (T)0. Otherwise, returns vnf(v0, v1).
+    // returns vnf(v0, v1).
     template <typename T>
-    T EvalOp(VNFunc vnf, T v0, T v1, ValueNum* pExcSet);
+    T EvalOp(VNFunc vnf, T v0, T v1);
 
     // returns vnf(v0, v1)  for int/INT32
-    int EvalOpInt(VNFunc vnf, int v0, int v1, ValueNum* pExcSet);
+    int EvalOpInt(VNFunc vnf, int v0, int v1);
 
     // return vnf(v0) or vnf(v0, v1), respectively (must, of course be unary/binary ops, respectively.)
     template <typename T>
@@ -240,6 +242,8 @@ private:
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
     ValueNum EvalFuncForConstantFPArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
     ValueNum EvalCastForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
+
+    ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
 // This is the constant value used for the default value of m_mapSelectBudget
 #define DEFAULT_MAP_SELECT_BUDGET 100 // used by JitVNMapSelBudget
@@ -422,6 +426,20 @@ public:
     // The Normal value is the value number of the expression when no exceptions occurred
     ValueNum VNNormalValue(ValueNumPair vnp, ValueNumKind vnk);
 
+    // Given a "vnp", get the NormalValuew for the VNK_Liberal part of that ValueNum
+    // The Normal value is the value number of the expression when no exceptions occurred
+    inline ValueNum VNLiberalNormalValue(ValueNumPair vnp)
+    {
+        return VNNormalValue(vnp, VNK_Liberal);
+    }
+
+    // Given a "vnp", get the NormalValuew for the VNK_Conservative part of that ValueNum
+    // The Normal value is the value number of the expression when no exceptions occurred
+    inline ValueNum VNConservativeNormalValue(ValueNumPair vnp)
+    {
+        return VNNormalValue(vnp, VNK_Conservative);
+    }
+
     // Given a "vnp", get the Normal values for both the liberal and conservative parts of "vnp"
     // The Normal value is the value number of the expression when no exceptions occurred
     ValueNumPair VNPNormalPair(ValueNumPair vnp);
@@ -439,15 +457,14 @@ public:
     // True "iff" vn is a value returned by a call to a shared static helper.
     bool IsSharedStatic(ValueNum vn);
 
-    // VN's for functions of other values.
-    // Four overloads, for arities 0, 1, 2, and 3.  If we need other arities, we'll consider it.
+    // VNForFunc: We have five overloads, for arities 0, 1, 2, 3 and 4
     ValueNum VNForFunc(var_types typ, VNFunc func);
     ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum opVNwx);
     // This must not be used for VNF_MapSelect applications; instead use VNForMapSelect, below.
     ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx);
     ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx);
 
-    // The following four op VNForFunc is only used for VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN
+    // The following four-op VNForFunc is used for VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN
     ValueNum VNForFunc(
         var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx, ValueNum op4VNwx);
 

@@ -1263,9 +1263,15 @@ public:
     unsigned slotNum;  // When an argument is passed in the OutArg area this is the slot number in the OutArg area
     unsigned numSlots; // Count of number of slots that this argument uses
 
-    unsigned alignment;  // 1 or 2 (slots/registers)
-    unsigned lateArgInx; // index into gtCallLateArgs list
-    unsigned tmpNum;     // the LclVar number if we had to force evaluation of this arg
+    unsigned alignment; // 1 or 2 (slots/registers)
+private:
+    unsigned _lateArgInx; // index into gtCallLateArgs list; UINT_MAX if this is not a late arg.
+public:
+    unsigned tmpNum; // the LclVar number if we had to force evaluation of this arg
+
+    var_types argType; // The type used to pass this argument. This is generally the original argument type, but when a
+                       // struct is passed as a scalar type, this is that type.
+                       // Note that if a struct is passed by reference, this will still be the struct type.
 
     bool needTmp : 1;       // True when we force this argument's evaluation into a temp LclVar
     bool needPlace : 1;     // True when we must replace this argument with a placeholder node
@@ -1277,13 +1283,31 @@ public:
                             // to be on the stack despite its arg list position.
     bool isStruct : 1;      // True if this is a struct arg
     bool _isVararg : 1;     // True if the argument is in a vararg context.
+    bool passedByRef : 1;   // True iff the argument is passed by reference.
 #ifdef FEATURE_ARG_SPLIT
     bool _isSplit : 1; // True when this argument is split between the registers and OutArg area
 #endif                 // FEATURE_ARG_SPLIT
 #ifdef FEATURE_HFA
-    bool _isHfaRegArg : 1; // True when the argument is passed as a HFA in FP registers.
-    bool _isDoubleHfa : 1; // True when the argument is passed as an HFA, with an element type of DOUBLE.
+    bool _isHfaArg : 1;    // True when the argument is an HFA type.
+    bool _isDoubleHfa : 1; // True when the argument is an HFA, with an element type of DOUBLE.
 #endif
+
+    bool isLateArg()
+    {
+        bool isLate = (_lateArgInx != UINT_MAX);
+        return isLate;
+    }
+
+    __declspec(property(get = getLateArgInx, put = setLateArgInx)) unsigned lateArgInx;
+    unsigned getLateArgInx()
+    {
+        assert(isLateArg());
+        return _lateArgInx;
+    }
+    void setLateArgInx(unsigned inx)
+    {
+        _lateArgInx = inx;
+    }
     __declspec(property(get = getRegNum)) regNumber regNum;
     regNumber getRegNum()
     {
@@ -1342,11 +1366,21 @@ public:
 #endif // FEATURE_VARARG
     }
 
+    __declspec(property(get = getIsHfaArg)) bool isHfaArg;
+    bool getIsHfaArg()
+    {
+#ifdef FEATURE_HFA
+        return _isHfaArg;
+#else
+        return false;
+#endif
+    }
+
     __declspec(property(get = getIsHfaRegArg)) bool isHfaRegArg;
     bool getIsHfaRegArg()
     {
 #ifdef FEATURE_HFA
-        return _isHfaRegArg;
+        return _isHfaArg && isPassedInRegisters();
 #else
         return false;
 #endif
@@ -1356,7 +1390,7 @@ public:
     var_types getHfaType()
     {
 #ifdef FEATURE_HFA
-        return _isHfaRegArg ? (_isDoubleHfa ? TYP_DOUBLE : TYP_FLOAT) : TYP_UNDEF;
+        return _isHfaArg ? (_isDoubleHfa ? TYP_DOUBLE : TYP_FLOAT) : TYP_UNDEF;
 #else
         return TYP_UNDEF;
 #endif
@@ -1367,35 +1401,36 @@ public:
 #ifdef FEATURE_HFA
         if (type != TYP_UNDEF)
         {
+            // We must already have set the passing mode.
+            assert(numRegs != 0 || numSlots != 0);
+            // We originally set numRegs according to the size of the struct, but if the size of the
+            // hfaType is not the same as the pointer size, we need to correct it.
+            // Note that hfaSlots is the number of registers we will use. For ARM, that is twice
+            // the number of "double registers".
             unsigned numHfaRegs = hfaSlots;
-// We originally set numRegs according to the size of the struct, but if the size of the
-// hfaType is not the same as the pointer size, we need to correct it.
-// Note that hfaSlots is the number of registers we will use. For ARM, that is twice
-// the number of "double registers".
+            if (isPassedInRegisters())
+            {
 #ifdef _TARGET_ARM_
-            if (type == TYP_DOUBLE)
-            {
-                // Must be an even number of registers.
-                assert((numRegs & 1) == 0);
-                numHfaRegs = hfaSlots / 2;
-            }
-            else
+                if (type == TYP_DOUBLE)
+                {
+                    // Must be an even number of registers.
+                    assert((numRegs & 1) == 0);
+                    numHfaRegs = hfaSlots / 2;
+                }
 #endif // _TARGET_ARM_
-            {
-                numHfaRegs = hfaSlots;
+                if (_isHfaArg)
+                {
+                    // This should already be set correctly.
+                    assert(numRegs == numHfaRegs);
+                    assert(_isDoubleHfa == (type == TYP_DOUBLE));
+                }
+                else
+                {
+                    numRegs = numHfaRegs;
+                }
             }
-            if (isHfaRegArg)
-            {
-                // This should already be set correctly.
-                assert(hfaType == type);
-                assert(numRegs == numHfaRegs);
-            }
-            else
-            {
-                _isDoubleHfa = (type == TYP_DOUBLE);
-                _isHfaRegArg = true;
-                numRegs      = numHfaRegs;
-            }
+            _isDoubleHfa = (type == TYP_DOUBLE);
+            _isHfaArg    = true;
         }
 #endif // FEATURE_HFA
     }
@@ -1426,14 +1461,72 @@ public:
         return !isSplit && (numRegs != 0);
     }
 
+    bool isPassedInFloatRegisters()
+    {
+#ifdef _TARGET_X86
+        return false;
+#else
+        return isValidFloatArgReg(regNum);
+#endif
+    }
+
     bool isSingleRegOrSlot()
     {
         return !isSplit && ((numRegs == 1) || (numSlots == 1));
     }
 
+    // Returns the number of "slots" used, where for this purpose a
+    // register counts as a slot.
+    unsigned getSlotCount()
+    {
+        if (isBackFilled)
+        {
+            assert(isPassedInRegisters());
+            assert(numRegs == 1);
+        }
+        else if (regNum == REG_STK)
+        {
+            assert(!isPassedInRegisters());
+            assert(numRegs == 0);
+        }
+        else
+        {
+            assert(numRegs > 0);
+        }
+        return numSlots + numRegs;
+    }
+
+    // Returns the size as a multiple of pointer-size.
+    // For targets without HFAs, this is the same as getSlotCount().
+    unsigned getSize()
+    {
+        unsigned size = getSlotCount();
+#ifdef FEATURE_HFA
+#ifdef _TARGET_ARM_
+        // We counted the number of regs, but if they are DOUBLE hfa regs we have to double the size.
+        if (isHfaRegArg && (hfaType == TYP_DOUBLE))
+        {
+            assert(!isSplit);
+            size <<= 1;
+        }
+#elif defined(_TARGET_ARM64_)
+        // We counted the number of regs, but if they are FLOAT hfa regs we have to halve the size.
+        if (isHfaRegArg && (hfaType == TYP_FLOAT))
+        {
+            // Round up in case of odd HFA count.
+            size = (size + 1) >> 1;
+        }
+#endif // _TARGET_ARM64_
+#endif
+        return size;
+    }
+
+    // Set the register numbers for a multireg argument.
+    // There's nothing to do on x64/Ux because the structDesc has already been used to set the
+    // register numbers.
     void SetMultiRegNums()
     {
-#if FEATURE_MULTIREG_ARGS
+#if FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
         if (numRegs == 1)
         {
             return;
@@ -1450,7 +1543,7 @@ public:
             argReg = (regNumber)(argReg + regSize);
             setRegNum(regIndex, argReg);
         }
-#endif
+#endif // FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
     }
 
     // Check that the value of 'isStruct' is consistent.
@@ -1564,15 +1657,13 @@ public:
                              bool     isStruct,
                              bool     isVararg = false);
 
-    void           RemorphReset();
-    fgArgTabEntry* RemorphRegArg(
-        unsigned argNum, GenTree* node, GenTree* parent, regNumber regNum, unsigned numRegs, unsigned alignment);
-
-    void RemorphStkArg(unsigned argNum, GenTree* node, GenTree* parent, unsigned numSlots, unsigned alignment);
+    void RemorphReset();
+    void UpdateRegArg(fgArgTabEntry* argEntry, GenTree* node, bool reMorphing);
+    void UpdateStkArg(fgArgTabEntry* argEntry, GenTree* node, bool reMorphing);
 
     void SplitArg(unsigned argNum, unsigned numRegs, unsigned numSlots);
 
-    void EvalToTmp(unsigned argNum, unsigned tmpNum, GenTree* newNode);
+    void EvalToTmp(fgArgTabEntry* curArgTabEntry, unsigned tmpNum, GenTree* newNode);
 
     void ArgsComplete();
 
@@ -1647,8 +1738,37 @@ public:
     }
 #endif // defined(UNIX_X86_ABI)
 
-    // Get the late arg for arg at position argIndex.  Caller must ensure this position has a late arg.
-    GenTree* GetLateArg(unsigned argIndex);
+    // Get the fgArgTabEntry for the arg at position argNum.
+    fgArgTabEntry* GetArgEntry(unsigned argNum, bool reMorphing = true)
+    {
+        fgArgTabEntry* curArgTabEntry = nullptr;
+
+        if (!reMorphing)
+        {
+            // The arg table has not yet been sorted.
+            curArgTabEntry = argTable[argNum];
+            assert(curArgTabEntry->argNum == argNum);
+            return curArgTabEntry;
+        }
+
+        for (unsigned i = 0; i < argCount; i++)
+        {
+            curArgTabEntry = argTable[i];
+            if (curArgTabEntry->argNum == argNum)
+            {
+                return curArgTabEntry;
+            }
+        }
+        noway_assert(!"GetArgEntry: argNum not found");
+        return nullptr;
+    }
+
+    // Get the node for the arg at position argIndex.
+    // Caller must ensure that this index is a valid arg index.
+    GenTree* GetArgNode(unsigned argIndex)
+    {
+        return GetArgEntry(argIndex)->node;
+    }
 
     void Dump(Compiler* compiler);
 };
@@ -2321,6 +2441,7 @@ public:
     static fgArgTabEntry* gtArgEntryByArgNum(GenTreeCall* call, unsigned argNum);
     static fgArgTabEntry* gtArgEntryByNode(GenTreeCall* call, GenTree* node);
     fgArgTabEntry* gtArgEntryByLateArgIndex(GenTreeCall* call, unsigned lateArgInx);
+    static GenTree* gtArgNodeByLateArgInx(GenTreeCall* call, unsigned lateArgInx);
     bool gtArgIsThisPtr(fgArgTabEntry* argEntry);
 
     GenTree* gtNewAssignNode(GenTree* dst, GenTree* src);
@@ -2491,6 +2612,12 @@ public:
     CORINFO_CLASS_HANDLE gtGetStructHandle(GenTree* tree);
     // Get the handle for a ref type.
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull);
+    // Get the element handle for an array of ref type.
+    CORINFO_CLASS_HANDLE gtGetArrayElementClassHandle(GenTree* array);
+    // Get a class handle from a helper call argument
+    CORINFO_CLASS_HANDLE gtGetHelperArgClassHandle(GenTree*  array,
+                                                   unsigned* runtimeLookupCount = nullptr,
+                                                   GenTree** handleTree         = nullptr);
 
 //-------------------------------------------------------------------------
 // Functions to display the trees
@@ -2958,7 +3085,7 @@ public:
 
 #define MAX_NumOfFieldsInPromotableStruct 4 // Maximum number of fields in promotable struct
 
-    // Info about struct fields
+    // Info about struct type fields.
     struct lvaStructFieldInfo
     {
         CORINFO_FIELD_HANDLE fldHnd;
@@ -2967,36 +3094,86 @@ public:
         var_types            fldType;
         unsigned             fldSize;
         CORINFO_CLASS_HANDLE fldTypeHnd;
+
+        lvaStructFieldInfo()
+            : fldHnd(nullptr), fldOffset(0), fldOrdinal(0), fldType(TYP_UNDEF), fldSize(0), fldTypeHnd(nullptr)
+        {
+        }
     };
 
-    // Info about struct to be promoted.
+    // Info about a struct type, instances of which may be candidates for promotion.
     struct lvaStructPromotionInfo
     {
         CORINFO_CLASS_HANDLE typeHnd;
         bool                 canPromote;
-        bool                 requiresScratchVar;
         bool                 containsHoles;
         bool                 customLayout;
+        bool                 fieldsSorted;
         unsigned char        fieldCnt;
         lvaStructFieldInfo   fields[MAX_NumOfFieldsInPromotableStruct];
 
-        lvaStructPromotionInfo()
-            : typeHnd(nullptr), canPromote(false), requiresScratchVar(false), containsHoles(false), customLayout(false)
+        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd = nullptr)
+            : typeHnd(typeHnd)
+            , canPromote(false)
+            , containsHoles(false)
+            , customLayout(false)
+            , fieldsSorted(false)
+            , fieldCnt(0)
         {
         }
     };
 
     static int __cdecl lvaFieldOffsetCmp(const void* field1, const void* field2);
-    void lvaCanPromoteStructType(CORINFO_CLASS_HANDLE    typeHnd,
-                                 lvaStructPromotionInfo* StructPromotionInfo,
-                                 bool                    sortFields);
-    void lvaCanPromoteStructVar(unsigned lclNum, lvaStructPromotionInfo* StructPromotionInfo);
-    bool lvaShouldPromoteStructVar(unsigned lclNum, lvaStructPromotionInfo* structPromotionInfo);
-    void lvaPromoteStructVar(unsigned lclNum, lvaStructPromotionInfo* StructPromotionInfo);
+
+    // This class is responsible for checking validity and profitability of struct promotion.
+    // If it is both legal and profitable, then TryPromoteStructVar promotes the struct and initializes
+    // nessesary information for fgMorphStructField to use.
+    class StructPromotionHelper
+    {
+    public:
+        StructPromotionHelper(Compiler* compiler);
+
+        bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd);
+        bool TryPromoteStructVar(unsigned lclNum);
+
+#ifdef DEBUG
+        void CheckRetypedAsScalar(CORINFO_FIELD_HANDLE fieldHnd, var_types requestedType);
+#endif // DEBUG
+
+#ifdef _TARGET_ARM_
+        bool GetRequiresScratchVar();
+#endif // _TARGET_ARM_
+
+    private:
+        bool CanPromoteStructVar(unsigned lclNum);
+        bool ShouldPromoteStructVar(unsigned lclNum);
+        void PromoteStructVar(unsigned lclNum);
+        void SortStructFields();
+
+        lvaStructFieldInfo GetFieldInfo(CORINFO_FIELD_HANDLE fieldHnd, BYTE ordinal);
+        bool TryPromoteStructField(lvaStructFieldInfo& outerFieldInfo);
+
+    private:
+        Compiler*              compiler;
+        lvaStructPromotionInfo structPromotionInfo;
+
+#ifdef _TARGET_ARM_
+        bool requiresScratchVar;
+#endif // _TARGET_ARM_
+
+#ifdef DEBUG
+        typedef JitHashTable<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<CORINFO_FIELD_STRUCT_>, var_types>
+                                 RetypedAsScalarFieldsMap;
+        RetypedAsScalarFieldsMap retypedFieldsMap;
+#endif // DEBUG
+    };
+
+    StructPromotionHelper* structPromotionHelper;
+
 #if !defined(_TARGET_64BIT_)
     void lvaPromoteLongVars();
 #endif // !defined(_TARGET_64BIT_)
-    unsigned lvaGetFieldLocal(LclVarDsc* varDsc, unsigned int fldOffset);
+    unsigned lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset);
     lvaPromotionType lvaGetPromotionType(const LclVarDsc* varDsc);
     lvaPromotionType lvaGetPromotionType(unsigned varNum);
     lvaPromotionType lvaGetParentPromotionType(const LclVarDsc* varDsc);
@@ -4266,8 +4443,24 @@ public:
     // the call may modify the heap (we assume arbitrary memory side effects if so).
     bool fgValueNumberHelperCall(GenTreeCall* helpCall);
 
-    // Requires "helpFunc" to be pure.  Returns the corresponding VNFunc.
-    VNFunc fgValueNumberHelperMethVNFunc(CorInfoHelpFunc helpFunc);
+    // Requires that "helpFunc" is one of the pure Jit Helper methods.
+    // Returns the corresponding VNFunc to use for value numbering
+    VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
+
+    // Adds the exception set for the current tree node which is performing a memory indirection operation
+    void fgValueNumberAddExceptionSetForIndirection(GenTree* tree);
+
+    // Adds the exception sets for the current tree node which is performing a division or modulus operation
+    void fgValueNumberAddExceptionSetForDivision(GenTree* tree);
+
+    // Adds the exception set for the current tree node which is performing a overflow checking operation
+    void fgValueNumberAddExceptionSetForOverflow(GenTree* tree);
+
+    // Adds the exception set for the current tree node which is performing a ckfinite operation
+    void fgValueNumberAddExceptionSetForCkFinite(GenTree* tree);
+
+    // Adds the exception sets for the current tree node
+    void fgValueNumberAddExceptionSet(GenTree* tree);
 
     // These are the current value number for the memory implicit variables while
     // doing value numbering.  These are the value numbers under the "liberal" interpretation
@@ -4339,18 +4532,16 @@ public:
     var_types getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS_HANDLE clsHnd, bool isVarArg);
 
     // Get the type that is used to pass values of the given struct type.
-    // If you have already retrieved the struct size then pass it as the optional fourth argument
-    //
     // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
     // hfa types.
     //
     var_types getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                                   structPassingKind*   wbPassStruct,
                                   bool                 isVarArg,
-                                  unsigned             structSize = 0);
+                                  unsigned             structSize);
 
     // Get the type that is used to return values of the given struct type.
-    // If you have already retrieved the struct size then pass it as the optional fourth argument
+    // If the size is unknown, pass 0 and it will be determined from 'clsHnd'.
     var_types getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                                      structPassingKind*   wbPassStruct = nullptr,
                                      unsigned             structSize   = 0);
@@ -4944,7 +5135,7 @@ private:
 
     GenTree* fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* oper);
 
-    GenTree* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeArgList* args);
+    GenTree* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeArgList* args, bool morphArgs = true);
 
     GenTree* fgMorphStackArgForVarArgs(unsigned lclNum, var_types varType, unsigned lclOffs);
 
@@ -4996,6 +5187,7 @@ private:
     GenTree* fgMorphCast(GenTree* tree);
     GenTree* fgUnwrapProxy(GenTree* objRef);
     GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
+    void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
     GenTreeArgList* fgMorphArgList(GenTreeArgList* args, MorphAddrContext* mac);
 
@@ -5761,7 +5953,7 @@ protected:
     {
         CSEdsc* csdNextInBucket; // used by the hash table
 
-        unsigned csdHashValue; // the orginal hashkey
+        unsigned csdHashKey; // the orginal hashkey
 
         unsigned csdIndex;          // 1..optCSECandidateCount
         char     csdLiveAcrossCall; // 0 or 1
@@ -5779,8 +5971,13 @@ protected:
         treeStmtLst* csdTreeList; // list of matching tree nodes: head
         treeStmtLst* csdTreeLast; // list of matching tree nodes: tail
 
-        ValueNum defConservativeVN; // if all def occurrences share the same conservative value
-                                    // number, this will reflect it; otherwise, NoVN.
+        ValueNum defExcSetPromise; // The exception set that is now required for all defs of this CSE.
+                                   // This will be set to NoVN if we decide to abandon this CSE
+
+        ValueNum defExcSetCurrent; // The set of exceptions we currently can use for CSE uses.
+
+        ValueNum defConservNormVN; // if all def occurrences share the same conservative normal value
+                                   // number, this will reflect it; otherwise, NoVN.
     };
 
     static const size_t s_optCSEhashSize;
@@ -8473,7 +8670,8 @@ public:
 #define CPU_AMD_X64 0x0210   // AMD x64 CPU
 #define CPU_INTEL_X64 0x0240 // Intel x64 CPU
 
-#define CPU_ARM 0x0300 // The generic ARM CPU
+#define CPU_ARM 0x0300   // The generic ARM CPU
+#define CPU_ARM64 0x0400 // The generic ARM64 CPU
 
         unsigned genCPU; // What CPU are we running on
     } info;
@@ -9630,7 +9828,7 @@ public:
             {
                 GenTreeCmpXchg* const cmpXchg = node->AsCmpXchg();
 
-                result = WalkTree(&cmpXchg->gtOpComparand, cmpXchg);
+                result = WalkTree(&cmpXchg->gtOpLocation, cmpXchg);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
@@ -9640,7 +9838,7 @@ public:
                 {
                     return result;
                 }
-                result = WalkTree(&cmpXchg->gtOpLocation, cmpXchg);
+                result = WalkTree(&cmpXchg->gtOpComparand, cmpXchg);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;

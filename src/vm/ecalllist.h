@@ -110,10 +110,8 @@ FCFuncStart(gStringFuncs)
     FCIntrinsic("get_Length", COMString::Length, CORINFO_INTRINSIC_StringLength)
     FCIntrinsic("get_Chars", COMString::GetCharAt, CORINFO_INTRINSIC_StringGetChar)
     FCFuncElement("IsAscii", COMString::IsAscii)
-#ifdef FEATURE_COMINTEROP
     FCFuncElement("SetTrailByte", COMString::FCSetTrailByte)
     FCFuncElement("TryGetTrailByte", COMString::FCTryGetTrailByte)
-#endif // FEATURE_COMINTEROP
 FCFuncEnd()
 
 FCFuncStart(gValueTypeFuncs)
@@ -739,11 +737,6 @@ FCFuncStart(gWaitHandleFuncs)
     FCFuncElement("SignalAndWaitOne", WaitHandleNative::CorSignalAndWaitOneNative)
 FCFuncEnd()
 
-FCFuncStart(gNumberFuncs)
-    FCFuncElement("DoubleToNumber", COMNumber::DoubleToNumberFC)
-    FCFuncElement("NumberToDouble", COMNumber::NumberToDoubleFC)
-FCFuncEnd()
-
 #ifdef FEATURE_COMINTEROP
 FCFuncStart(gVariantFuncs)
     FCFuncElement("SetFieldsObject", COMVariant::SetFieldsObject)
@@ -1305,7 +1298,6 @@ FCClassElement("MngdSafeArrayMarshaler", "System.StubHelpers", gMngdSafeArrayMar
 FCClassElement("ModuleBuilder", "System.Reflection.Emit", gCOMModuleBuilderFuncs)
 FCClassElement("ModuleHandle", "System", gCOMModuleHandleFuncs)
 FCClassElement("Monitor", "System.Threading", gMonitorFuncs)
-FCClassElement("Number", "System", gNumberFuncs)
 #ifdef FEATURE_COMINTEROP
 FCClassElement("OAVariantLib", "Microsoft.Win32", gOAVariantFuncs)
 #endif

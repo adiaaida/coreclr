@@ -47,6 +47,7 @@ def static getOSGroup(def os) {
                             else {
                                 label('windows_server_2016_clr_perf')
                             }
+
                             wrappers {
                                 credentialsBinding {
                                     string('BV_UPLOAD_SAS_TOKEN', 'CoreCLR Perf BenchView Sas')

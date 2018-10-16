@@ -10,9 +10,9 @@ Module Name:
 
 Abstract:
 
-    Rotor Platform Adaptation Layer (PAL) header file.  This file
-    defines all types and API calls required by the Rotor port of
-    the Microsoft Common Language Runtime.
+    CoreCLR Platform Adaptation Layer (PAL) header file.  This file
+    defines all types and API calls required by the CoreCLR when
+    compiled for Unix-like systems.
 
     Defines which control the behavior of this include file:
       UNICODE - define it to set the Ansi/Unicode neutral names to
@@ -3303,52 +3303,6 @@ BitScanForward64(
     return bRet;
 }
 
-// Define BitScanReverse64 and BitScanReverse
-// Per MSDN, BitScanReverse64 or BitScanReverse will search the mask data from most significant bit (MSB) 
-// to least significant bit (LSB) for a set bit (1).
-// If one is found, its bit position is returned in the out PDWORD argument and 1 is returned.
-// Otherwise, 0 is returned.
-//
-// On GCC, the equivalent function is __builtin_clzll or __builtin_clz. It returns 1+index of the most
-// significant set bit, or undefined result if mask is zero.
-EXTERN_C
-PALIMPORT
-inline
-unsigned char
-PALAPI
-BitScanReverse(
-    IN OUT PDWORD Index,
-    IN UINT qwMask)
-{
-    unsigned char bRet = FALSE;
-    if (qwMask != 0)
-    {
-        *Index = (UINT) (8 * sizeof (UINT) - __builtin_clz(qwMask) - 1);
-        bRet = TRUE;
-    }
-
-    return bRet;
-}
-
-EXTERN_C
-PALIMPORT
-inline
-unsigned char
-PALAPI
-BitScanReverse64(
-    IN OUT PDWORD Index,
-    IN UINT64 qwMask)
-{
-    unsigned char bRet = FALSE;
-    if (qwMask != 0)
-    {
-        *Index = (UINT) (8 * sizeof (UINT64) - __builtin_clzll(qwMask) - 1);
-        bRet = TRUE;
-    }
-
-    return bRet;
-}
-
 FORCEINLINE void PAL_ArmInterlockedOperationBarrier()
 {
 #ifdef _ARM64_
@@ -5089,9 +5043,7 @@ public:
 };
 
 //
-// NOTE: Catching hardware exceptions are only enabled in the DAC and SOS 
-// builds. A hardware exception in coreclr code will fail fast/terminate
-// the process.
+// NOTE: This is only defined in one PAL test.
 //
 #ifdef FEATURE_ENABLE_HARDWARE_EXCEPTIONS
 #define HardwareExceptionHolder CatchHardwareExceptionHolder __catchHardwareException;

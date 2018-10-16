@@ -9496,11 +9496,8 @@ void Compiler::fgSimpleLowering()
                     }
                     else
                     {
-                        con             = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
-                        con->gtRsvdRegs = RBM_NONE;
-
-                        add             = gtNewOperNode(GT_ADD, TYP_REF, arr, con);
-                        add->gtRsvdRegs = arr->gtRsvdRegs;
+                        con = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
+                        add = gtNewOperNode(GT_ADD, TYP_REF, arr, con);
 
                         range.InsertAfter(arr, con, add);
                     }
@@ -18685,10 +18682,10 @@ void Compiler::fgSetTreeSeqHelper(GenTree* tree, bool isLIR)
             break;
 
         case GT_INDEX_ADDR:
-            // Evaluate the index first, then the array address
-            assert((tree->gtFlags & GTF_REVERSE_OPS) != 0);
-            fgSetTreeSeqHelper(tree->AsIndexAddr()->Index(), isLIR);
+            // Evaluate the array first, then the index....
+            assert((tree->gtFlags & GTF_REVERSE_OPS) == 0);
             fgSetTreeSeqHelper(tree->AsIndexAddr()->Arr(), isLIR);
+            fgSetTreeSeqHelper(tree->AsIndexAddr()->Index(), isLIR);
             break;
 
         default:
@@ -21881,8 +21878,9 @@ void Compiler::fgInline()
 
     if (verbose || fgPrintInlinedMethods)
     {
-        printf("**************** Inline Tree\n");
-        m_inlineStrategy->Dump();
+        JITDUMP("**************** Inline Tree");
+        printf("\n");
+        m_inlineStrategy->Dump(verbose);
     }
 
 #endif // DEBUG
@@ -22576,7 +22574,7 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
 
 #ifdef DEBUG
 
-    if (verbose || fgPrintInlinedMethods)
+    if (verbose)
     {
         printf("Successfully inlined %s (%d IL bytes) (depth %d) [%s]\n", eeGetMethodFullName(fncHandle),
                inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
@@ -23057,7 +23055,7 @@ GenTree* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
                 /* argBashTmpNode is non-NULL iff the argument's value was
                    referenced exactly once by the original IL. This offers an
-                   oppportunity to avoid an intermediate temp and just insert
+                   opportunity to avoid an intermediate temp and just insert
                    the original argument tree.
 
                    However, if the temp node has been cloned somewhere while

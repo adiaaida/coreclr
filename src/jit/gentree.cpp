@@ -2744,7 +2744,6 @@ unsigned Compiler::gtSetListOrder(GenTree* list, bool isListCallArgs, bool callA
         GenTree* next = list->gtOp.gtOp2;
 
         unsigned level = 0;
-        unsigned ftreg = 0;
 
         // TODO: Do we have to compute costs differently for argument lists and
         // all other lists?
@@ -2754,7 +2753,6 @@ unsigned Compiler::gtSetListOrder(GenTree* list, bool isListCallArgs, bool callA
 
         if (next != nullptr)
         {
-            ftreg |= next->gtRsvdRegs;
             if (isListCallArgs)
             {
                 if (level < nxtlvl)
@@ -2768,8 +2766,6 @@ unsigned Compiler::gtSetListOrder(GenTree* list, bool isListCallArgs, bool callA
 
         GenTree* op1 = list->gtOp.gtOp1;
         unsigned lvl = gtSetEvalOrder(op1);
-
-        list->gtRsvdRegs = (regMaskSmall)(ftreg | op1->gtRsvdRegs);
 
         // Swap the level counts
         if (list->gtFlags & GTF_REVERSE_OPS)
@@ -3090,12 +3086,8 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
  *  This function sets:
  *      1. gtCostEx to the execution complexity estimate
  *      2. gtCostSz to the code size estimate
- *      3. gtRsvdRegs to the set of fixed registers trashed by the tree
- *      4. gtFPlvl to the "floating point depth" value for node, i.e. the max. number
- *         of operands the tree will push on the x87 (coprocessor) stack. Also sets
- *         genFPstkLevel, tmpDoubleSpillMax, and possibly gtFPstLvlRedo.
- *      5. Sometimes sets GTF_ADDRMODE_NO_CSE on nodes in the tree.
- *      6. DEBUG-only: clears GTF_DEBUG_NODE_MORPHED.
+ *      3. Sometimes sets GTF_ADDRMODE_NO_CSE on nodes in the tree.
+ *      4. DEBUG-only: clears GTF_DEBUG_NODE_MORPHED.
  */
 
 #ifdef _PREFAST_
@@ -3123,10 +3115,9 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
     /* Assume no fixed registers will be trashed */
 
-    regMaskTP ftreg = RBM_NONE; // Set of registers that will be used by the subtree
-    unsigned  level;
-    int       costEx;
-    int       costSz;
+    unsigned level;
+    int      costEx;
+    int      costSz;
 
 #ifdef DEBUG
     costEx = -1;
@@ -3384,7 +3375,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costSz = 1;
 
             level = gtSetEvalOrder(op1);
-            ftreg |= op1->gtRsvdRegs;
 
             /* Special handling for some operators */
 
@@ -4022,11 +4012,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                     // Encourage the first operand to be evaluated (into EAX/EDX) first */
                     lvlb -= 3;
-
-#ifdef _TARGET_XARCH_
-                    // the idiv and div instruction requires EAX/EDX
-                    ftreg |= RBM_EAX | RBM_EDX;
-#endif
                 }
                 break;
 
@@ -4057,9 +4042,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         /* We use imulEAX for TYP_LONG and overflow multiplications */
                         // Encourage the first operand to be evaluated (into EAX/EDX) first */
                         lvlb -= 4;
-
-                        // the imulEAX instruction ob x86 requires EDX:EAX
-                        ftreg |= (RBM_EAX | RBM_EDX);
 
                         /* The 64-bit imul instruction costs more */
                         costEx += 4;
@@ -4092,8 +4074,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 gtSetEvalOrder(op1);
                 level = gtSetEvalOrder(op2);
 
-                ftreg |= op1->gtRsvdRegs | op2->gtRsvdRegs;
-
                 /* GT_COMMA cost is the sum of op1 and op2 costs */
                 costEx = (op1->gtCostEx + op2->gtCostEx);
                 costSz = (op1->gtCostSz + op2->gtCostSz);
@@ -4114,7 +4094,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     level += 1;
                 }
 
-                ftreg |= op1->gtRsvdRegs | op2->gtRsvdRegs;
                 costEx = op1->gtCostEx + op2->gtCostEx;
                 costSz = op1->gtCostSz + op2->gtCostSz;
 
@@ -4161,13 +4140,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     DONE_OP1:
         assert(lvlb >= 0);
         lvl2 = gtSetEvalOrder(op2) + lvlb;
-        ftreg |= op1->gtRsvdRegs;
-        // For assignment, we execute op2 before op1, except that for block
-        // ops the destination address is evaluated first.
-        if ((oper != GT_ASG) || tree->OperIsBlkOp())
-        {
-            ftreg |= op2->gtRsvdRegs;
-        }
 
         costEx += (op1->gtCostEx + op2->gtCostEx);
         costSz += (op1->gtCostSz + op2->gtCostSz);
@@ -4252,9 +4224,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             if (varTypeIsFloating(op1->TypeGet()))
             {
-#ifdef _TARGET_XARCH_
-                ftreg |= RBM_EAX;
-#endif
                 level++;
                 lvl2++;
             }
@@ -4279,11 +4248,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 if (!op2->IsCnsIntOrI())
                 {
                     costEx += 3;
-                    if (REG_SHIFT != REG_NA)
-                    {
-                        ftreg |= RBM_SHIFT;
-                    }
-
 #ifndef _TARGET_64BIT_
                     // Variable sized LONG shifts require the use of a helper call
                     //
@@ -4293,7 +4257,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         lvl2 += 5;
                         costEx += 3 * IND_COST_EX;
                         costSz += 4;
-                        ftreg |= RBM_CALLEE_TRASH;
                     }
 #endif // !_TARGET_64BIT_
                 }
@@ -4499,7 +4462,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 costEx += thisVal->gtCostEx;
                 costSz += thisVal->gtCostSz + 1;
-                ftreg |= thisVal->gtRsvdRegs;
             }
 
             /* Evaluate the arguments, right to left */
@@ -4515,7 +4477,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 costEx += tree->gtCall.gtCallArgs->gtCostEx;
                 costSz += tree->gtCall.gtCallArgs->gtCostSz;
-                ftreg |= tree->gtCall.gtCallArgs->gtRsvdRegs;
             }
 
             /* Evaluate the temp register arguments list
@@ -4533,7 +4494,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 costEx += tree->gtCall.gtCallLateArgs->gtCostEx;
                 costSz += tree->gtCall.gtCallLateArgs->gtCostSz;
-                ftreg |= tree->gtCall.gtCallLateArgs->gtRsvdRegs;
             }
 
             if (tree->gtCall.gtCallType == CT_INDIRECT)
@@ -4551,7 +4511,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
                 costEx += indirect->gtCostEx + IND_COST_EX;
                 costSz += indirect->gtCostSz;
-                ftreg |= indirect->gtRsvdRegs;
             }
             else
             {
@@ -4586,27 +4545,10 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             {
                 costEx += 2 * IND_COST_EX;
                 costSz += 2;
-
-                /* Virtual stub calls also must reserve the VIRTUAL_STUB_PARAM reg */
-                if (tree->gtCall.IsVirtualStub())
-                {
-                    ftreg |= virtualStubParamInfo->GetRegMask();
-                }
             }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-#if defined(_TARGET_ARMARCH_)
-            if (tree->gtCall.IsR2RRelativeIndir())
-            {
-                ftreg |= RBM_R2R_INDIRECT_PARAM;
-            }
-#endif
-#endif
 
             level += 5;
             costEx += 3 * IND_COST_EX;
-            ftreg |= RBM_CALLEE_TRASH;
-
             break;
 
         case GT_ARR_ELEM:
@@ -4667,9 +4609,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             costEx = MAX_COST; // Seriously, what could be more expensive than lock cmpxchg?
             costSz += 5;       // size of lock cmpxchg [reg+C], reg
-#ifdef _TARGET_XARCH_
-            ftreg |= RBM_EAX; // cmpxchg must be evaluated into eax.
-#endif
             break;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -4783,8 +4722,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     }
 
 DONE:
-
-    tree->gtRsvdRegs = (regMaskSmall)ftreg;
 
     // Some path through this function must have set the costs.
     assert(costEx != -1);
@@ -6441,21 +6378,7 @@ fgArgTabEntry* Compiler::gtArgEntryByArgNum(GenTreeCall* call, unsigned argNum)
 {
     fgArgInfo* argInfo = call->fgArgInfo;
     noway_assert(argInfo != nullptr);
-
-    unsigned        argCount       = argInfo->ArgCount();
-    fgArgTabEntry** argTable       = argInfo->ArgTable();
-    fgArgTabEntry*  curArgTabEntry = nullptr;
-
-    for (unsigned i = 0; i < argCount; i++)
-    {
-        curArgTabEntry = argTable[i];
-        if (curArgTabEntry->argNum == argNum)
-        {
-            return curArgTabEntry;
-        }
-    }
-    noway_assert(!"gtArgEntryByArgNum: argNum not found");
-    return nullptr;
+    return argInfo->GetArgEntry(argNum);
 }
 
 /*****************************************************************************
@@ -6510,6 +6433,7 @@ fgArgTabEntry* Compiler::gtArgEntryByLateArgIndex(GenTreeCall* call, unsigned la
 {
     fgArgInfo* argInfo = call->fgArgInfo;
     noway_assert(argInfo != nullptr);
+    assert(lateArgInx != UINT_MAX);
 
     unsigned        argCount       = argInfo->ArgCount();
     fgArgTabEntry** argTable       = argInfo->ArgTable();
@@ -6518,13 +6442,41 @@ fgArgTabEntry* Compiler::gtArgEntryByLateArgIndex(GenTreeCall* call, unsigned la
     for (unsigned i = 0; i < argCount; i++)
     {
         curArgTabEntry = argTable[i];
-        if (curArgTabEntry->lateArgInx == lateArgInx)
+        if (curArgTabEntry->isLateArg() && curArgTabEntry->lateArgInx == lateArgInx)
         {
             return curArgTabEntry;
         }
     }
     noway_assert(!"gtArgEntryByNode: node not found");
     return nullptr;
+}
+
+//------------------------------------------------------------------------
+// gtArgNodeByLateArgInx: Given a call instruction, find the argument with the given
+//                        late arg index (i.e. the given position in the gtCallLateArgs list).
+// Arguments:
+//    call - the call node
+//    lateArgInx - the index into the late args list
+//
+// Return value:
+//    The late argument node.
+//
+GenTree* Compiler::gtArgNodeByLateArgInx(GenTreeCall* call, unsigned lateArgInx)
+{
+    GenTree* argx     = nullptr;
+    unsigned regIndex = 0;
+
+    for (GenTreeArgList *list = call->gtCall.gtCallLateArgs; list != nullptr; regIndex++, list = list->Rest())
+    {
+        argx = list->Current();
+        assert(!argx->IsArgPlaceHolderNode()); // No placeholder nodes are in gtCallLateArgs;
+        if (regIndex == lateArgInx)
+        {
+            break;
+        }
+    }
+    noway_assert(argx != nullptr);
+    return argx;
 }
 
 /*****************************************************************************
@@ -8321,42 +8273,6 @@ bool GenTree::gtRequestSetFlags()
     // this method returns true.
     //
     return result;
-}
-
-/*****************************************************************************/
-void GenTree::CopyTo(class Compiler* comp, const GenTree& gt)
-{
-    SetOperRaw(gt.OperGet());
-
-    gtType          = gt.gtType;
-    gtAssertionInfo = gt.gtAssertionInfo;
-
-    gtRegNum = gt.gtRegNum; // one union member.
-    CopyCosts(&gt);
-
-    gtFlags  = gt.gtFlags;
-    gtVNPair = gt.gtVNPair;
-
-    gtRsvdRegs = gt.gtRsvdRegs;
-
-    gtNext = gt.gtNext;
-    gtPrev = gt.gtPrev;
-#ifdef DEBUG
-    gtTreeID = gt.gtTreeID;
-    gtSeqNum = gt.gtSeqNum;
-#endif
-    // Largest node subtype:
-    void* remDst = reinterpret_cast<char*>(this) + sizeof(GenTree);
-    void* remSrc = reinterpret_cast<char*>(const_cast<GenTree*>(&gt)) + sizeof(GenTree);
-    memcpy(remDst, remSrc, TREE_NODE_SZ_LARGE - sizeof(GenTree));
-}
-
-void GenTree::CopyToSmall(const GenTree& gt)
-{
-    // Small node size is defined by GenTreeOp.
-    void* remDst = reinterpret_cast<char*>(this) + sizeof(GenTree);
-    void* remSrc = reinterpret_cast<char*>(const_cast<GenTree*>(&gt)) + sizeof(GenTree);
-    memcpy(remDst, remSrc, TREE_NODE_SZ_SMALL - sizeof(GenTree));
 }
 
 unsigned GenTree::NumChildren()
@@ -11837,7 +11753,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 }
                 else
                 {
-                    if (curArgTabEntry->lateArgInx == (unsigned)-1)
+                    if (!curArgTabEntry->isLateArg())
                     {
                         gtGetArgMsg(call, operand, curArgTabEntry->argNum, -1, buf, sizeof(buf));
                     }
@@ -12279,80 +12195,18 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
         GenTree*             op2ClassFromHandle = tree->gtOp.gtOp2->gtCall.gtCallArgs->gtOp.gtOp1;
         GenTree*             op1TunneledHandle  = nullptr;
         GenTree*             op2TunneledHandle  = nullptr;
-        CORINFO_CLASS_HANDLE cls1Hnd            = nullptr;
-        CORINFO_CLASS_HANDLE cls2Hnd            = nullptr;
+        CORINFO_CLASS_HANDLE cls1Hnd            = NO_CLASS_HANDLE;
+        CORINFO_CLASS_HANDLE cls2Hnd            = NO_CLASS_HANDLE;
         unsigned             runtimeLookupCount = 0;
 
-        // Try and find class handle for op1
-        if ((op1ClassFromHandle->gtOper == GT_CNS_INT) && (op1ClassFromHandle->gtType == TYP_I_IMPL))
-        {
-            assert(op1ClassFromHandle->IsIconHandle(GTF_ICON_CLASS_HDL));
-            cls1Hnd = (CORINFO_CLASS_HANDLE)op1ClassFromHandle->gtIntCon.gtCompileTimeHandle;
-        }
-        else if (op1ClassFromHandle->OperGet() == GT_RUNTIMELOOKUP)
-        {
-            cls1Hnd = op1ClassFromHandle->AsRuntimeLookup()->GetClassHandle();
-            runtimeLookupCount++;
-        }
-        // Tunnel through indirs we may see when prejitting
-        else if (op1ClassFromHandle->gtOper == GT_IND)
-        {
-            // The handle indirs we can optimize will be marked as non-faulting.
-            // Certain others (eg from refanytype) may not be.
-            if (op1ClassFromHandle->gtFlags & GTF_IND_NONFAULTING)
-            {
-                GenTree* op1HandleLiteral = op1ClassFromHandle->gtOp.gtOp1;
+        // Try and find class handles from op1 and op2
+        cls1Hnd = gtGetHelperArgClassHandle(op1ClassFromHandle, &runtimeLookupCount, &op1TunneledHandle);
+        cls2Hnd = gtGetHelperArgClassHandle(op2ClassFromHandle, &runtimeLookupCount, &op2TunneledHandle);
 
-                // If, after tunneling, we have a constant handle,
-                // remember the class and the value tree for later.
-                if ((op1HandleLiteral->gtOper == GT_CNS_INT) && (op1HandleLiteral->gtType == TYP_I_IMPL))
-                {
-                    JITDUMP("tunneling through indir on op1\n");
-                    op1TunneledHandle = op1HandleLiteral;
+        // If we have both class handles, try and resolve the type equality test completely.
+        bool resolveFailed = false;
 
-                    // These handle constants should be class handles.
-                    assert(op1TunneledHandle->IsIconHandle(GTF_ICON_CLASS_HDL));
-                    cls1Hnd = (CORINFO_CLASS_HANDLE)op1TunneledHandle->gtIntCon.gtCompileTimeHandle;
-                }
-            }
-        }
-
-        // Try and find class handle for op2
-        if ((op2ClassFromHandle->gtOper == GT_CNS_INT) && (op2ClassFromHandle->gtType == TYP_I_IMPL))
-        {
-            assert(op2ClassFromHandle->IsIconHandle(GTF_ICON_CLASS_HDL));
-            cls2Hnd = (CORINFO_CLASS_HANDLE)op2ClassFromHandle->gtIntCon.gtCompileTimeHandle;
-        }
-        else if (op2ClassFromHandle->OperGet() == GT_RUNTIMELOOKUP)
-        {
-            cls2Hnd = op2ClassFromHandle->AsRuntimeLookup()->GetClassHandle();
-            runtimeLookupCount++;
-        }
-        // Tunnel through indirs we may see when prejitting
-        else if (op2ClassFromHandle->gtOper == GT_IND)
-        {
-            // The handle indirs we can optimize will be marked as non-faulting.
-            // Certain others (eg from refanytype) may not be.
-            if (op2ClassFromHandle->gtFlags & GTF_IND_NONFAULTING)
-            {
-                GenTree* op2HandleLiteral = op2ClassFromHandle->gtOp.gtOp1;
-
-                // If, after tunneling, we have a constant handle,
-                // remember the class and the value tree for later.
-                if ((op2HandleLiteral->gtOper == GT_CNS_INT) && (op2HandleLiteral->gtType == TYP_I_IMPL))
-                {
-                    JITDUMP("tunneling through indir on op2\n");
-                    op2TunneledHandle = op2HandleLiteral;
-
-                    // These handle constants should be class handles.
-                    assert(op2TunneledHandle->IsIconHandle(GTF_ICON_CLASS_HDL));
-                    cls2Hnd = (CORINFO_CLASS_HANDLE)op2TunneledHandle->gtIntCon.gtCompileTimeHandle;
-                }
-            }
-        }
-
-        // If we have class handles, try and resolve the type equality test completely.
-        if ((cls1Hnd != nullptr) && (cls2Hnd != nullptr))
+        if ((cls1Hnd != NO_CLASS_HANDLE) && (cls2Hnd != NO_CLASS_HANDLE))
         {
             JITDUMP("Asking runtime to compare %p (%s) and %p (%s) for equality\n", dspPtr(cls1Hnd),
                     info.compCompHnd->getClassName(cls1Hnd), dspPtr(cls2Hnd), info.compCompHnd->getClassName(cls2Hnd));
@@ -12373,16 +12227,27 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
                 lvaGenericsContextUseCount -= runtimeLookupCount;
                 return result;
             }
+            else
+            {
+                resolveFailed = true;
+            }
         }
 
-        JITDUMP("Could not find handle for %s%s\n", (cls1Hnd == nullptr) ? " cls1" : "",
-                (cls2Hnd == nullptr) ? " cls2" : "");
+        if (resolveFailed)
+        {
+            JITDUMP("Runtime reports comparison is NOT known at jit time\n");
+        }
+        else
+        {
+            JITDUMP("Could not find handle for %s%s\n", (cls1Hnd == NO_CLASS_HANDLE) ? " cls1" : "",
+                    (cls2Hnd == NO_CLASS_HANDLE) ? " cls2" : "");
+        }
 
         // We can't answer the equality comparison definitively at jit
         // time, but can still simplfy the comparison.
         //
         // If we successfully tunneled through both operands, compare
-        // the tunnneled values, otherwise compare the orignal values.
+        // the tunneled values, otherwise compare the original values.
         GenTree* compare = nullptr;
         if ((op1TunneledHandle != nullptr) && (op2TunneledHandle != nullptr))
         {
@@ -12406,7 +12271,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     // method table comparison.
     //
     // TODO: if other operand is null...
-    if (op1Kind != TPK_GetType && op2Kind != TPK_GetType)
+    if ((op1Kind != TPK_GetType) && (op2Kind != TPK_GetType))
     {
         return tree;
     }
@@ -12416,39 +12281,10 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 
     // Tunnel through the handle operand to get at the class handle involved.
     GenTree* const       opHandleArgument = opHandle->gtCall.gtCallArgs->gtOp.gtOp1;
-    GenTree*             opHandleLiteral  = opHandleArgument;
-    CORINFO_CLASS_HANDLE clsHnd           = nullptr;
-
-    // Unwrap any GT_NOP node used to prevent constant folding
-    if ((opHandleLiteral->gtOper == GT_NOP) && (opHandleLiteral->gtType == TYP_I_IMPL))
-    {
-        opHandleLiteral = opHandleLiteral->gtOp.gtOp1;
-    }
-
-    // For runtime lookups we can get at the handle directly
-    if (opHandleLiteral->gtOper == GT_RUNTIMELOOKUP)
-    {
-        clsHnd = opHandleLiteral->AsRuntimeLookup()->GetClassHandle();
-    }
-    else
-    {
-        // Tunnel through prejit indirs if necessary
-        if (opHandleLiteral->gtOper == GT_IND)
-        {
-            // Handle indirs should be marked as nonfaulting.
-            assert((opHandleLiteral->gtFlags & GTF_IND_NONFAULTING) != 0);
-            opHandleLiteral = opHandleLiteral->gtOp.gtOp1;
-        }
-
-        if ((opHandleLiteral->gtOper == GT_CNS_INT) && (opHandleLiteral->gtType == TYP_I_IMPL))
-        {
-            assert(opHandleLiteral->IsIconHandle(GTF_ICON_CLASS_HDL));
-            clsHnd = CORINFO_CLASS_HANDLE(opHandleLiteral->gtIntCon.gtCompileTimeHandle);
-        }
-    }
+    CORINFO_CLASS_HANDLE clsHnd           = gtGetHelperArgClassHandle(opHandleArgument);
 
     // If we couldn't find the class handle, give up.
-    if (clsHnd == nullptr)
+    if (clsHnd == NO_CLASS_HANDLE)
     {
         return tree;
     }
@@ -12496,6 +12332,72 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 
     // And we're done
     return compare;
+}
+
+//------------------------------------------------------------------------
+// gtGetHelperArgClassHandle: find the compile time class handle from
+//   a helper call argument tree
+//
+// Arguments:
+//    tree - tree that passes the handle to the helper
+//    runtimeLookupCount [optional, in/out] - incremented if tree was a runtime lookup
+//    handleTree [optional, out] - set to the literal operand tree for indirect handles
+//
+// Returns:
+//    The compile time class handle if known.
+//
+CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree*  tree,
+                                                         unsigned* runtimeLookupCount,
+                                                         GenTree** handleTree)
+{
+    CORINFO_CLASS_HANDLE result = NO_CLASS_HANDLE;
+
+    // Walk through any wrapping nop.
+    if ((tree->gtOper == GT_NOP) && (tree->gtType == TYP_I_IMPL))
+    {
+        tree = tree->gtOp.gtOp1;
+    }
+
+    // The handle could be a literal constant
+    if ((tree->OperGet() == GT_CNS_INT) && (tree->TypeGet() == TYP_I_IMPL))
+    {
+        assert(tree->IsIconHandle(GTF_ICON_CLASS_HDL));
+        result = (CORINFO_CLASS_HANDLE)tree->gtIntCon.gtCompileTimeHandle;
+    }
+    // Or the result of a runtime lookup
+    else if (tree->OperGet() == GT_RUNTIMELOOKUP)
+    {
+        result = tree->AsRuntimeLookup()->GetClassHandle();
+
+        if (runtimeLookupCount != nullptr)
+        {
+            *runtimeLookupCount = *runtimeLookupCount + 1;
+        }
+    }
+    // Or something reached indirectly
+    else if (tree->gtOper == GT_IND)
+    {
+        // The handle indirs we are looking for will be marked as non-faulting.
+        // Certain others (eg from refanytype) may not be.
+        if (tree->gtFlags & GTF_IND_NONFAULTING)
+        {
+            GenTree* handleTreeInternal = tree->gtOp.gtOp1;
+
+            if ((handleTreeInternal->OperGet() == GT_CNS_INT) && (handleTreeInternal->TypeGet() == TYP_I_IMPL))
+            {
+                // These handle constants should be class handles.
+                assert(handleTreeInternal->IsIconHandle(GTF_ICON_CLASS_HDL));
+                result = (CORINFO_CLASS_HANDLE)handleTreeInternal->gtIntCon.gtCompileTimeHandle;
+
+                if (handleTree != nullptr)
+                {
+                    *handleTree = handleTreeInternal;
+                }
+            }
+        }
+    }
+
+    return result;
 }
 
 /*****************************************************************************
@@ -12975,17 +12877,18 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         lvaTable[boxTempLcl].lvType   = TYP_UNDEF;
         const bool isUnsafeValueClass = false;
         lvaSetStruct(boxTempLcl, boxClass, isUnsafeValueClass);
+        var_types boxTempType = lvaTable[boxTempLcl].lvType;
 
         // Remove the newobj and assigment to box temp
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
         asg->gtBashToNOP();
 
         // Update the copy from the value to be boxed to the box temp
-        GenTree* newDst     = gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLcl, TYP_STRUCT));
+        GenTree* newDst     = gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLcl, boxTempType));
         copyDst->gtOp.gtOp1 = newDst;
 
         // Return the address of the now-struct typed box temp
-        GenTree* retValue = gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLcl, TYP_STRUCT));
+        GenTree* retValue = gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLcl, boxTempType));
 
         return retValue;
     }
@@ -16399,9 +16302,8 @@ bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_
     {
         return false;
     }
-    CORINFO_CLASS_HANDLE fldCls = nullptr;
     noway_assert(fldHnd != nullptr);
-    CorInfoType cit      = info.compCompHnd->getFieldType(fldHnd, &fldCls);
+    CorInfoType cit      = info.compCompHnd->getFieldType(fldHnd);
     var_types   fieldTyp = JITtype2varType(cit);
     return fieldTyp != TYP_REF;
 }
@@ -16677,12 +16579,14 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
 
         case GT_IND:
         {
-            // indir(addr(lcl)) --> lcl
-            //
-            // This comes up during constrained callvirt on ref types.
             GenTreeIndir* indir = obj->AsIndir();
+
             if (indir->HasBase() && !indir->HasIndex())
             {
+                // indir(addr(lcl)) --> lcl
+                //
+                // This comes up during constrained callvirt on ref types.
+
                 GenTree*             base = indir->Base();
                 GenTreeLclVarCommon* lcl  = base->IsLocalAddrExpr();
 
@@ -16691,6 +16595,16 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
                     const unsigned objLcl = lcl->GetLclNum();
                     objClass              = lvaTable[objLcl].lvClassHnd;
                     *isExact              = lvaTable[objLcl].lvClassIsExact;
+                }
+                else if (base->OperGet() == GT_ARR_ELEM)
+                {
+                    // indir(arr_elem(...)) -> array element type
+
+                    GenTree* array = base->AsArrElem()->gtArrObj;
+
+                    objClass   = gtGetArrayElementClassHandle(array);
+                    *isExact   = false;
+                    *isNonNull = false;
                 }
             }
             break;
@@ -16711,6 +16625,16 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
             break;
         }
 
+        case GT_INDEX:
+        {
+            GenTree* array = obj->AsIndex()->Arr();
+
+            objClass   = gtGetArrayElementClassHandle(array);
+            *isExact   = false;
+            *isNonNull = false;
+            break;
+        }
+
         default:
         {
             break;
@@ -16718,6 +16642,44 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
     }
 
     return objClass;
+}
+
+//------------------------------------------------------------------------
+// gtGetArrayElementClassHandle: find class handle for elements of an array
+// of ref types
+//
+// Arguments:
+//    array -- array to find handle for
+//
+// Return Value:
+//    nullptr if element class handle is unknown, otherwise the class handle.
+
+CORINFO_CLASS_HANDLE Compiler::gtGetArrayElementClassHandle(GenTree* array)
+{
+    bool                 isArrayExact   = false;
+    bool                 isArrayNonNull = false;
+    CORINFO_CLASS_HANDLE arrayClassHnd  = gtGetClassHandle(array, &isArrayExact, &isArrayNonNull);
+
+    if (arrayClassHnd != nullptr)
+    {
+        // We know the class of the reference
+        DWORD attribs = info.compCompHnd->getClassAttribs(arrayClassHnd);
+
+        if ((attribs & CORINFO_FLG_ARRAY) != 0)
+        {
+            // We know for sure it is an array
+            CORINFO_CLASS_HANDLE elemClassHnd  = nullptr;
+            CorInfoType          arrayElemType = info.compCompHnd->getChildType(arrayClassHnd, &elemClassHnd);
+
+            if (arrayElemType == CORINFO_TYPE_CLASS)
+            {
+                // We know it is an array of ref types
+                return elemClassHnd;
+            }
+        }
+    }
+
+    return nullptr;
 }
 
 void GenTree::ParseArrayAddress(
@@ -16966,7 +16928,7 @@ void GenTree::ParseArrayAddressWork(Compiler*       comp,
                 break;
         }
         // If we didn't return above, must be a contribution to the non-constant part of the index VN.
-        ValueNum vn = comp->GetValueNumStore()->VNNormalValue(gtVNPair, VNK_Liberal);
+        ValueNum vn = comp->GetValueNumStore()->VNLiberalNormalValue(gtVNPair);
         if (inputMul != 1)
         {
             ValueNum mulVN = comp->GetValueNumStore()->VNForLongCon(inputMul);

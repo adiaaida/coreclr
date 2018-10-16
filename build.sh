@@ -500,11 +500,10 @@ build_CoreLib()
            exit 1
        fi
     elif [ $__DoCrossArchBuild == 1 ]; then
-       if [[ ( "$__CrossArch" == "x86" ) && ( "$__BuildArch" == "arm" ) ]]; then
+       if [[ ( "$__CrossArch" == "x86" ) && ( "$__BuildArch" == "arm" || "$__BuildArch" == "armel" ) ]]; then
            build_CoreLib_ni "$__CrossComponentBinDir/crossgen"
-       elif [[ ( "$__HostArch" == "x64" ) && ( "$__BuildArch" == "arm" ) ]]; then
-           # For now, continue to use Hostx86/arm crossgen to crossgen System.Private.CoreLib.dll
-           build_CoreLib_ni "$__BinDir/x86/crossgen"
+       elif [[ ( "$__CrossArch" == "x64" ) && ( "$__BuildArch" == "arm" || "$__BuildArch" == "armel" ) ]]; then
+           build_CoreLib_ni "$__CrossComponentBinDir/crossgen"
        elif [[ ( "$__HostArch" == "x64" ) && ( "$__BuildArch" == "arm64" ) ]]; then
            build_CoreLib_ni "$__CrossComponentBinDir/crossgen"
        fi

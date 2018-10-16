@@ -54,6 +54,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\MemoryManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\TlsOverPerCoreLockedStacksArrayPool.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Utilities.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Binary\Reader.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Binary\ReaderBigEndian.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Binary\ReaderLittleEndian.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Binary\WriterBigEndian.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Binary\WriterLittleEndian.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Buffers\Text\FormattingHelpers.CountDigits.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Byte.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Char.cs" />
@@ -258,6 +263,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)System\IntPtr.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Lazy.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Marvin.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Marvin.OrdinalIgnoreCase.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Math.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\MathF.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\MarshalByRefObject.cs" />
@@ -277,8 +283,13 @@
     <Compile Include="$(MSBuildThisFileDirectory)System\NonSerializedAttribute.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\NotSupportedException.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Nullable.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Number.BigInteger.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Number.DiyFp.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Number.Dragon4.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Number.Formatting.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Number.Grisu3.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Number.NumberBuffer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Number.NumberToDouble.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Number.Parsing.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\NullReferenceException.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\ObjectDisposedException.cs" />
@@ -581,6 +592,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)System\Text\StringBuilder.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Text\StringBuilder.Debug.cs" Condition="'$(Configuration)' == 'Debug'" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Text\UnicodeEncoding.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)System\Text\Utf16Utility.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Text\UTF32Encoding.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Text\UTF7Encoding.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)System\Text\UTF8Encoding.cs" />
@@ -803,6 +815,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)System\Security\SecureString.Windows.cs" />
   </ItemGroup>
   <ItemGroup Condition="$(TargetsWindows) and '$(EnableWinRT)' != 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Internal\Win32\RegistryKey.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Advapi32\Interop.RegCloseKey.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Advapi32\Interop.RegCreateKeyEx.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Advapi32\Interop.RegDeleteKeyEx.cs" />
@@ -815,15 +828,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Advapi32\Interop.RegQueryInfoKey.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Advapi32\Interop.RegQueryValueEx.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Advapi32\Interop.RegSetValueEx.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\Registry.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\RegistryHive.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\RegistryOptions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\RegistryValueKind.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\RegistryValueOptions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\RegistryView.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\SafeHandles\SafeRegistryHandle.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Win32\SafeHandles\SafeRegistryHandle.Windows.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)System\Security\AccessControl\RegistryRights.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Kernel32\Interop.CreateFile.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Kernel32\Interop.FreeLibrary.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Interop\Windows\Kernel32\Interop.LoadLibraryEx.cs" />
