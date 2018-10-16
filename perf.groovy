@@ -36,13 +36,13 @@ def static getOSGroup(def os) {
                         def architecture = arch
                         def jobName = isSmoketest ? "perf_perflab_${os}_${arch}_${opt_level}_${jit}_smoketest" : "perf_perflab_${os}_${arch}_${opt_level}_${jit}"
                         def testEnv = ""
-                        def python = "py"
+                        def python = "C:\\Python35\\python.exe"
 
                         def newJob = job(Utilities.getFullJobName(project, jobName, isPR)) {
                             // Set the label.
                             if (isSmoketest) {
                                 label('Windows.Amd64.ClientRS4.DevEx.15.8.Perf')
-                                python = "C:\python3.7.0\python.exe"
+                                python = "C:\\python3.7.0\\python.exe"
                             }
                             else {
                                 label('windows_server_2016_clr_perf')
