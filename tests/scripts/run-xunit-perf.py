@@ -225,11 +225,11 @@ def run_benchmark(benchname, benchdir, env, sandboxDir, benchmarkOutputDir, test
         if proc.returncode != 0:
             error = proc.returncode
 
+    if os.path.isfile(benchnameLogFileName):
+        with open(benchnameLogFileName, 'r') as f:
+            print(f.read())
     if error != 0:
         log("CoreRun.exe exited with %s code" % (error))
-        if os.path.isfile(benchnameLogFileName):
-            with open(benchnameLogFileName, 'r') as f:
-                print(f.read())
         return 1
 
     return 0
