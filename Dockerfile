@@ -65,7 +65,6 @@ COPY ./bin/tests/Windows_NT.x64.Release/Tests /app/bin/tests/Windows_NT.x64.Rele
 COPY ./tests/scripts /app/tests/scripts
 COPY ./Tools/dotnetcli /app/Tools/dotnetcli
 COPY ./tests/src/Common/PerfHarness /app/tests/src/Common/PerfHarness
-COPY ./Microsoft.Benchview.JSONFormat /app/Microsoft.Benchview.JSONFormat
 COPY ./dependencies.props /app/dependencies.props
 
 CMD ["python", "tests\\scripts\\run-xunit-perf.py", "-arch", "x64", "-configuration", "Release", "-os", "Windows_NT", "-outputdir", "bin\\sandbox_logs", "-testBinLoc", "bin\\tests\\Windows_NT.x64.Release\\Jit\\Performance\\CodeQuality"]
